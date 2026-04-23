@@ -185,6 +185,7 @@ struct PluginApplication {
     parameter_updates_receiver: Arc<channel::Receiver<ParameterUpdate>>,
     feedback: Option<Arc<FeedbackFn>>,
     event_sink: Option<Arc<AudioEventSink>>,
+    tick_count: u64,
 }
 
 impl iced_baseview::Application for PluginApplication {
@@ -196,10 +197,16 @@ impl iced_baseview::Application for PluginApplication {
     fn new(flags: Self::Flags) -> (Self, Task<Self::Message>) {
         let mut app = App::new(None);
         app.set_au_mode(flags.filter);
-        // Debug: write directly to file to confirm plugin UI is loading
+        // Debug: write diagnostics to file
         let _ = std::fs::write("/tmp/orbiter-plugin-debug.txt", format!(
-            "PluginApplication created at {:?}, filter={:?}\n",
-            std::time::SystemTime::now(), flags.filter,
+            "PluginApplication created at {:?}\nfilter={:?}\nau_mode={}\nsettings_expanded={}\nview_transition={}\ninstrument_appear_time={}\nphase={:?}\n",
+            std::time::SystemTime::now(),
+            flags.filter,
+            app.au_mode,
+            app.settings_expanded,
+            app.view_transition,
+            app.instrument_appear_time,
+            app.phase,
         ));
 
         (
@@ -209,6 +216,7 @@ impl iced_baseview::Application for PluginApplication {
                 parameter_updates_receiver: flags.parameter_updates_receiver,
                 feedback: flags.feedback,
                 event_sink: flags.event_sink,
+                tick_count: 0,
             },
             Task::none(),
         )
@@ -224,6 +232,17 @@ impl iced_baseview::Application for PluginApplication {
                 // Apply audio feedback before processing the tick so visuals
                 // reflect the latest amplitude from the audio thread.
                 if matches!(msg, Message::Tick) {
+                    self.tick_count += 1;
+                    if self.tick_count % 300 == 1 {
+                        let _ = std::fs::write("/tmp/orbiter-plugin-debug.txt", format!(
+                            "tick={}\norbital_time={:.2}\nau_mode={}\nphase={:?}\nview_transition={:.3}\n",
+                            self.tick_count,
+                            self.app.orbital_scene.time,
+                            self.app.au_mode,
+                            self.app.phase,
+                            self.app.view_transition,
+                        ));
+                    }
                     if let Some(ref fb_fn) = self.feedback {
                         let fb = fb_fn();
                         self.app.apply_audio_feedback(&fb);
