@@ -92,6 +92,8 @@ impl Editor for OrbiterPluginEditor {
                 parameter_updates_receiver: Arc::new(param_rx),
                 feedback: self.feedback.clone(),
                 event_sink: self.event_sink.clone(),
+                width: unscaled_width,
+                height: unscaled_height,
             },
             Settings {
                 window: baseview::WindowOpenOptions {
@@ -166,6 +168,8 @@ struct PluginFlags {
     parameter_updates_receiver: Arc<channel::Receiver<ParameterUpdate>>,
     feedback: Option<Arc<FeedbackFn>>,
     event_sink: Option<Arc<AudioEventSink>>,
+    width: u32,
+    height: u32,
 }
 
 /// Message type wrapping orbiter_app::Message + parameter update notifications.
@@ -197,17 +201,8 @@ impl iced_baseview::Application for PluginApplication {
     fn new(flags: Self::Flags) -> (Self, Task<Self::Message>) {
         let mut app = App::new(None);
         app.set_au_mode(flags.filter);
-        // Debug: write diagnostics to file
-        let _ = std::fs::write("/tmp/orbiter-plugin-debug.txt", format!(
-            "PluginApplication created at {:?}\nfilter={:?}\nau_mode={}\nsettings_expanded={}\nview_transition={}\ninstrument_appear_time={}\nphase={:?}\n",
-            std::time::SystemTime::now(),
-            flags.filter,
-            app.au_mode,
-            app.settings_expanded,
-            app.view_transition,
-            app.instrument_appear_time,
-            app.phase,
-        ));
+        // Set initial viewport size from the editor window dimensions.
+        app.set_viewport_size(flags.width as f32, flags.height as f32);
 
         (
             Self {
