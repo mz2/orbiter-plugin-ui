@@ -68,4 +68,4 @@ orbiter_plugin_ui::create_editor(state, filter, Some(feedback))
 
 ## License
 
-ISC
+Apache-2.0

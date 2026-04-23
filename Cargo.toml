@@ -2,7 +2,7 @@
 name = "orbiter-plugin-ui"
 version = "0.1.0"
 edition = "2021"
-license = "ISC"
+license = "Apache-2.0"
 description = "Shared iced_baseview UI bridge for Orbiter nih-plug VST3/CLAP plugins"
 
 [dependencies]
