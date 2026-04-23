@@ -107,7 +107,10 @@ impl Editor for OrbiterPluginEditor {
                     ignore_non_modifier_keys: false,
                     always_redraw: true,
                 },
-                fonts: vec![],
+                fonts: vec![
+                    std::borrow::Cow::Borrowed(iced_graphics::text::FIRA_SANS_REGULAR),
+                    std::borrow::Cow::Borrowed(orbiter_app::FIRA_SANS_BOLD),
+                ],
                 ..Default::default()
             },
         );

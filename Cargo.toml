@@ -18,6 +18,8 @@ nih_plug_iced = { workspace = true }
 # iced_baseview for windowed iced rendering inside plugin hosts
 iced_baseview = { path = "../../vendor/iced_baseview" }
 iced_widget = { git = "https://github.com/iced-rs/iced", branch = "master" }
+# Embed Fira Sans Regular font (plugin sandboxes lack system font access)
+iced_graphics = { git = "https://github.com/iced-rs/iced", branch = "master", features = ["fira-sans"] }
 baseview = { path = "../../vendor/baseview" }
 
 # Re-export for plugin crates
