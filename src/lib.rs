@@ -196,6 +196,7 @@ impl iced_baseview::Application for PluginApplication {
     fn new(flags: Self::Flags) -> (Self, Task<Self::Message>) {
         let mut app = App::new(None);
         app.set_au_mode(flags.filter);
+        log::info!("[orbiter-plugin-ui] PluginApplication created, filter={:?}", flags.filter);
 
         (
             Self {
