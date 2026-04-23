@@ -1,0 +1,30 @@
+[package]
+name = "orbiter-plugin-ui"
+version = "0.1.0"
+edition = "2021"
+license = "ISC"
+description = "Shared iced_baseview UI bridge for Orbiter nih-plug VST3/CLAP plugins"
+
+[dependencies]
+# orbiter-app with baseview-renderer so AppRenderer = iced_renderer::Renderer
+# (compatible with iced_baseview's Renderer type)
+orbiter-app = { path = "../orbiter-app", features = ["baseview-renderer"] }
+
+# nih-plug for the Editor trait and GuiContext
+nih_plug = { workspace = true }
+# Only used for IcedState (editor window size persistence)
+nih_plug_iced = { workspace = true }
+
+# iced_baseview for windowed iced rendering inside plugin hosts
+iced_baseview = { path = "../../vendor/iced_baseview" }
+iced_widget = { git = "https://github.com/iced-rs/iced", branch = "master" }
+baseview = { path = "../../vendor/baseview" }
+
+# Re-export for plugin crates
+crossbeam = "0.8"
+
+# Serialization (for IcedState persistence)
+serde = { workspace = true }
+
+# Logging
+log = "0.4"

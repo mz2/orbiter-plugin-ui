@@ -1,0 +1,237 @@
+//! Shared iced_baseview UI bridge for Orbiter nih-plug VST3/CLAP plugins.
+//!
+//! Wraps `orbiter_app::App` in an `iced_baseview::Application` so that
+//! VST3/CLAP plugins render the same UI as the AU extensions.
+
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+
+use baseview::WindowScalePolicy;
+use crossbeam::atomic::AtomicCell;
+use crossbeam::channel;
+use iced_baseview::futures::Subscription;
+use iced_baseview::settings::IcedBaseviewSettings;
+use iced_baseview::window::WindowSubs;
+use iced_baseview::{executor, Renderer, Settings, Task};
+use nih_plug::prelude::{Editor, GuiContext, ParentWindowHandle};
+
+pub use nih_plug_iced::IcedState;
+pub use orbiter_app::InstrumentFilter;
+pub use orbiter_app::AudioFeedback;
+
+use orbiter_app::{App, Message};
+
+/// Callback to read audio feedback from the plugin's audio thread.
+/// Called on every frame to populate amplitude-driven visual effects.
+pub type FeedbackFn = dyn Fn() -> AudioFeedback + Send + Sync + 'static;
+
+/// Create an [`Editor`] that renders the orbiter-app UI for a single instrument.
+///
+/// `feedback` is called each frame to read audio amplitude data for visual effects.
+/// Pass `None` if no feedback is available (visuals will be static).
+pub fn create_editor(
+    iced_state: Arc<IcedState>,
+    filter: InstrumentFilter,
+    feedback: Option<Arc<FeedbackFn>>,
+) -> Option<Box<dyn Editor>> {
+    let (tx, _rx) = channel::bounded(1);
+    Some(Box::new(OrbiterPluginEditor {
+        iced_state,
+        filter,
+        scaling_factor: AtomicCell::new(None),
+        parameter_updates_sender: tx,
+        is_open: Arc::new(AtomicBool::new(false)),
+        feedback,
+    }))
+}
+
+/// Notification that a parameter changed (forces UI redraw).
+struct ParameterUpdate;
+
+/// [`Editor`] implementation that opens an iced_baseview window
+/// running the orbiter-app UI in AU mode.
+struct OrbiterPluginEditor {
+    iced_state: Arc<IcedState>,
+    filter: InstrumentFilter,
+    scaling_factor: AtomicCell<Option<f32>>,
+    parameter_updates_sender: channel::Sender<ParameterUpdate>,
+    /// Track whether the editor window is currently open.
+    /// (IcedState.open is private, so we manage our own flag.)
+    is_open: Arc<AtomicBool>,
+    /// Optional audio feedback callback for amplitude-driven visuals.
+    feedback: Option<Arc<FeedbackFn>>,
+}
+
+impl Editor for OrbiterPluginEditor {
+    fn spawn(
+        &self,
+        parent: ParentWindowHandle,
+        context: Arc<dyn GuiContext>,
+    ) -> Box<dyn std::any::Any + Send> {
+        let (unscaled_width, unscaled_height) = self.iced_state.size();
+        let scaling_factor = self.scaling_factor.load();
+
+        let (_param_tx, param_rx) = channel::bounded(1);
+
+        let window = iced_baseview::open_parented::<PluginApplication, _>(
+            &parent,
+            PluginFlags {
+                filter: self.filter,
+                context,
+                parameter_updates_receiver: Arc::new(param_rx),
+                feedback: self.feedback.clone(),
+            },
+            Settings {
+                window: baseview::WindowOpenOptions {
+                    title: String::from("Orbiter"),
+                    size: baseview::Size::new(unscaled_width as f64, unscaled_height as f64),
+                    scale: scaling_factor
+                        .map(|f| WindowScalePolicy::ScaleFactor(f as f64))
+                        .unwrap_or(WindowScalePolicy::SystemScaleFactor),
+                },
+                iced_baseview: IcedBaseviewSettings {
+                    ignore_non_modifier_keys: false,
+                    always_redraw: true,
+                },
+                fonts: vec![],
+                ..Default::default()
+            },
+        );
+
+        self.is_open.store(true, Ordering::Release);
+        Box::new(PluginEditorHandle {
+            is_open: self.is_open.clone(),
+            window,
+        })
+    }
+
+    fn size(&self) -> (u32, u32) {
+        self.iced_state.size()
+    }
+
+    fn set_scale_factor(&self, factor: f32) -> bool {
+        if self.is_open.load(Ordering::Acquire) {
+            return false;
+        }
+        self.scaling_factor.store(Some(factor));
+        true
+    }
+
+    fn param_value_changed(&self, _id: &str, _normalized_value: f32) {
+        let _ = self.parameter_updates_sender.try_send(ParameterUpdate);
+    }
+
+    fn param_modulation_changed(&self, _id: &str, _modulation_offset: f32) {
+        let _ = self.parameter_updates_sender.try_send(ParameterUpdate);
+    }
+
+    fn param_values_changed(&self) {
+        let _ = self.parameter_updates_sender.try_send(ParameterUpdate);
+    }
+}
+
+/// Window handle that closes the editor on drop.
+struct PluginEditorHandle {
+    is_open: Arc<AtomicBool>,
+    window: iced_baseview::window::WindowHandle<PluginMessage>,
+}
+
+unsafe impl Send for PluginEditorHandle {}
+
+impl Drop for PluginEditorHandle {
+    fn drop(&mut self) {
+        self.is_open.store(false, Ordering::Release);
+        self.window.close_window();
+    }
+}
+
+// ── iced_baseview Application ──
+
+/// Flags passed to the Application on creation.
+struct PluginFlags {
+    filter: InstrumentFilter,
+    context: Arc<dyn GuiContext>,
+    parameter_updates_receiver: Arc<channel::Receiver<ParameterUpdate>>,
+    feedback: Option<Arc<FeedbackFn>>,
+}
+
+/// Message type wrapping orbiter_app::Message + parameter update notifications.
+#[derive(Debug, Clone)]
+enum PluginMessage {
+    App(Message),
+    #[allow(dead_code)]
+    ParameterUpdate,
+}
+
+/// The iced_baseview Application that wraps orbiter_app::App.
+struct PluginApplication {
+    app: App,
+    #[allow(dead_code)]
+    context: Arc<dyn GuiContext>,
+    #[allow(dead_code)]
+    parameter_updates_receiver: Arc<channel::Receiver<ParameterUpdate>>,
+    feedback: Option<Arc<FeedbackFn>>,
+}
+
+impl iced_baseview::Application for PluginApplication {
+    type Executor = executor::Default;
+    type Message = PluginMessage;
+    type Flags = PluginFlags;
+    type Theme = iced_widget::Theme;
+
+    fn new(flags: Self::Flags) -> (Self, Task<Self::Message>) {
+        let mut app = App::new(None);
+        app.set_au_mode(flags.filter);
+
+        (
+            Self {
+                app,
+                context: flags.context,
+                parameter_updates_receiver: flags.parameter_updates_receiver,
+                feedback: flags.feedback,
+            },
+            Task::none(),
+        )
+    }
+
+    fn title(&self) -> String {
+        "Orbiter".into()
+    }
+
+    fn update(&mut self, message: Self::Message) -> Task<Self::Message> {
+        match message {
+            PluginMessage::App(msg) => {
+                // Apply audio feedback before processing the tick so visuals
+                // reflect the latest amplitude from the audio thread.
+                if matches!(msg, Message::Tick) {
+                    if let Some(ref fb_fn) = self.feedback {
+                        let fb = fb_fn();
+                        self.app.apply_audio_feedback(&fb);
+                    }
+                }
+                self.app.update(msg);
+            }
+            PluginMessage::ParameterUpdate => {
+                // Forces a redraw
+            }
+        }
+        Task::none()
+    }
+
+    fn view(&self) -> iced_baseview::Element<'_, Self::Message, Self::Theme, Renderer> {
+        self.app.view().map(PluginMessage::App)
+    }
+
+    fn theme(&self) -> Self::Theme {
+        iced_widget::Theme::Dark
+    }
+
+    fn subscription(
+        &self,
+        window_subs: &mut WindowSubs<Self::Message>,
+    ) -> Subscription<Self::Message> {
+        // Tick on every frame for animation and audio feedback
+        window_subs.on_frame = Some(Arc::new(|| Some(PluginMessage::App(Message::Tick))));
+        Subscription::none()
+    }
+}
