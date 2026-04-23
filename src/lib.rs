@@ -107,6 +107,13 @@ impl Editor for OrbiterPluginEditor {
                     ignore_non_modifier_keys: false,
                     always_redraw: true,
                 },
+                renderer_settings: iced_baseview::core::renderer::Settings {
+                    default_font: iced_baseview::core::Font {
+                        family: iced_baseview::core::font::Family::Name("Fira Sans"),
+                        ..iced_baseview::core::Font::default()
+                    },
+                    default_text_size: iced_baseview::core::Pixels::from(16.0),
+                },
                 fonts: vec![
                     std::borrow::Cow::Borrowed(iced_graphics::text::FIRA_SANS_REGULAR),
                     std::borrow::Cow::Borrowed(orbiter_app::FIRA_SANS_BOLD),
