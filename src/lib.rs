@@ -196,7 +196,11 @@ impl iced_baseview::Application for PluginApplication {
     fn new(flags: Self::Flags) -> (Self, Task<Self::Message>) {
         let mut app = App::new(None);
         app.set_au_mode(flags.filter);
-        log::info!("[orbiter-plugin-ui] PluginApplication created, filter={:?}", flags.filter);
+        // Debug: write directly to file to confirm plugin UI is loading
+        let _ = std::fs::write("/tmp/orbiter-plugin-debug.txt", format!(
+            "PluginApplication created at {:?}, filter={:?}\n",
+            std::time::SystemTime::now(), flags.filter,
+        ));
 
         (
             Self {
